@@ -24,6 +24,53 @@ static size_t cb(void *data, size_t size, size_t nmemb, void *userp) {
   return realsize;
 }
 
+void concatArgs(int numArgs, const char *argVals[], char *url) {
+	strcpy(url, "http://api.marketstack.com/v1/eod"
+								 "?access_key=390e2a1f207b6534df8019e00a2f18c7");
+
+	for (int i = 1; i < numArgs; i++) {
+		if (!strncmp("--symbols=", argVals[i], 10)) {
+			strcat(url, "&");
+			strcat(url, argVals[i] + 2);
+		} else if (!strncmp("--date_from=", argVals[i], 12)) {
+			strcat(url, "&");
+			strcat(url, argVals[i] + 2);
+		} else if (!strncmp("--date_to=", argVals[i], 10)) {
+			strcat(url, "&");
+			strcat(url, argVals[i] + 2);
+		} else if (!strncmp("--sort=", argVals[i], 7)) {
+			strcat(url, "&");
+			strcat(url, argVals[i] + 2);
+		} else {
+			printf("Unkown command line arg!: %s", argVals[i]);
+		}
+	}
+}
+
+int exportToFile(cJSON *data) {
+	char *prettyData = cJSON_Print(data);
+
+	if (!prettyData) {
+		const char *error_ptr = cJSON_GetErrorPtr();
+		if (error_ptr != NULL) {
+				fprintf(stderr, "Error before: %s\n", error_ptr);
+		}
+		return -1;
+	}
+
+	FILE *jsonResults = fopen("stats.json", "w+");
+
+	if (!jsonResults) {
+		fclose(jsonResults);
+		return -1;
+	}
+
+	fputs(prettyData, jsonResults);
+	fclose(jsonResults);
+
+	return 0;
+}
+
 int main(int argc, const char *argv[]) {
   if (argc == 1) {
     printf("Not enough arguments!\n");
@@ -41,64 +88,52 @@ int main(int argc, const char *argv[]) {
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&chunk);
 
-    // TODO: check to see if cmd line args will not over fill buffer
     char requrl[1023];
-    strcpy(requrl, "http://api.marketstack.com/v1/eod"
-                   "?access_key=390e2a1f207b6534df8019e00a2f18c7");
-
-    for (int i = 1; i < argc; i++) {
-      if (!strncmp("--symbols=", argv[i], 10)) {
-        strcat(requrl, "&");
-        strcat(requrl, argv[i] + 2);
-      } else if (!strncmp("--date_from=", argv[i], 12)) {
-        strcat(requrl, "&");
-        strcat(requrl, argv[i] + 2);
-      } else if (!strncmp("--date_to=", argv[i], 12)) {
-        strcat(requrl, "&");
-        strcat(requrl, argv[i] + 2);
-      } else if (!strncmp("--sort=", argv[i], 12)) {
-        strcat(requrl, "&");
-        strcat(requrl, argv[i] + 2);
-      }
-    }
+		concatArgs(argc, argv, requrl);
 
     curl_easy_setopt(curl, CURLOPT_URL, requrl);
-    res = curl_easy_perform(curl);
 
+		// perform request for data
+    res = curl_easy_perform(curl);
     if (res != CURLE_OK) {
       fprintf(stderr, "REQUEST FAILED! Error: %s\n", curl_easy_strerror(res));
-      return EXIT_FAILURE;
+      goto END;
     }
 
+		// parse out request data with cJSON
     cJSON *results = cJSON_Parse(chunk.response);
-
     if (!results) {
       const char *error_ptr = cJSON_GetErrorPtr();
       if (error_ptr != NULL) {
-          fprintf(stderr, "Error before: %s\n", error_ptr);
+          fprintf(stderr, "cJSON ERROR: %s\n", error_ptr);
       }
-      return EXIT_FAILURE;
+      goto END;
     }
 
-    char *prettyResults = cJSON_Print(results);
+		// get data object where all the actual info is
+		const cJSON *stockData = cJSON_GetObjectItemCaseSensitive(results, "data");
+		const cJSON *oneDayData;
 
-    if (!prettyResults) {
-      const char *error_ptr = cJSON_GetErrorPtr();
-      if (error_ptr != NULL) {
-          fprintf(stderr, "Error before: %s\n", error_ptr);
-      }
-      return EXIT_FAILURE;
-    }
+		cJSON_ArrayForEach(oneDayData, stockData) {
+			cJSON *open 			= cJSON_GetObjectItemCaseSensitive(oneDayData, "open");
+			cJSON *high 			= cJSON_GetObjectItemCaseSensitive(oneDayData, "high");
+			cJSON *low  			= cJSON_GetObjectItemCaseSensitive(oneDayData, "low");
+			cJSON *close 			= cJSON_GetObjectItemCaseSensitive(oneDayData, "close");
+			cJSON *volume			= cJSON_GetObjectItemCaseSensitive(oneDayData, "volume");
+			cJSON *adj_high 	= cJSON_GetObjectItemCaseSensitive(oneDayData, "adj_high");
+			cJSON *adj_low 		= cJSON_GetObjectItemCaseSensitive(oneDayData, "adj_low");
+			cJSON *adj_close 	= cJSON_GetObjectItemCaseSensitive(oneDayData, "adj_close");
+			cJSON *adj_open 	= cJSON_GetObjectItemCaseSensitive(oneDayData, "adj_open");
+			cJSON *adj_volume = cJSON_GetObjectItemCaseSensitive(oneDayData, "adj_volume");
+			cJSON *symbol 		= cJSON_GetObjectItemCaseSensitive(oneDayData, "symbol");
+			cJSON *exchange 	= cJSON_GetObjectItemCaseSensitive(oneDayData, "exchange");
+			cJSON *date 			= cJSON_GetObjectItemCaseSensitive(oneDayData, "date");
+		}
 
-    FILE *jsonResults = fopen("stats.json", "w+");
+		if (exportToFile(results))
+			printf("Writing to file failed!\n");
 
-    if (!jsonResults) {
-      return EXIT_FAILURE;
-    }
-
-    fputs(prettyResults, jsonResults);
-    fclose(jsonResults);
-
+END:
     curl_easy_cleanup(curl);
   }
 }
