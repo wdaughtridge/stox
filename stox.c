@@ -65,23 +65,39 @@ int main(int argc, const char *argv[]) {
     curl_easy_setopt(curl, CURLOPT_URL, requrl);
     res = curl_easy_perform(curl);
 
+    if (res != CURLE_OK) {
+      fprintf(stderr, "REQUEST FAILED! Error: %s\n", curl_easy_strerror(res));
+      return EXIT_FAILURE;
+    }
+
     cJSON *results = cJSON_Parse(chunk.response);
-    if (!results)
-      return -1;
+
+    if (!results) {
+      const char *error_ptr = cJSON_GetErrorPtr();
+      if (error_ptr != NULL) {
+          fprintf(stderr, "Error before: %s\n", error_ptr);
+      }
+      return EXIT_FAILURE;
+    }
 
     char *prettyResults = cJSON_Print(results);
-    if (!prettyResults)
-      return -1;
+
+    if (!prettyResults) {
+      const char *error_ptr = cJSON_GetErrorPtr();
+      if (error_ptr != NULL) {
+          fprintf(stderr, "Error before: %s\n", error_ptr);
+      }
+      return EXIT_FAILURE;
+    }
 
     FILE *jsonResults = fopen("stats.json", "w+");
 
-    if (jsonResults)
-      fputs(prettyResults, jsonResults);
+    if (!jsonResults) {
+      return EXIT_FAILURE;
+    }
 
+    fputs(prettyResults, jsonResults);
     fclose(jsonResults);
-
-    if (res != CURLE_OK)
-      fprintf(stderr, "REQUEST FAILED! Error: %s\n", curl_easy_strerror(res));
 
     curl_easy_cleanup(curl);
   }
